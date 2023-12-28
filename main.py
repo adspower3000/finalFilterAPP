@@ -1,4 +1,7 @@
 import sys
+from datetime import datetime
+from typing import re
+
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, \
     QTableWidgetItem, QDateEdit, QFileDialog
 from PyQt5.QtCore import Qt, QDate
@@ -78,9 +81,61 @@ class MyApp(QWidget):
         self.setWindowTitle('Рассчетка')
         self.show()
 
+    def reverse_date(date_str):
+        # Преобразование даты из строки в формат PostgreSQL
+        date_obj = datetime.strptime(date_str, '%d.%m.%Y')
+        postgresql_date = date_obj.strftime('%Y-%m-%d')
+        return postgresql_date
+
+    def process_and_insert_to_db(self, input_file, db_params):
+        # Подключение к базе данных
+        connection = psycopg2.connect(**db_params)
+        cursor = connection.cursor()
+
+
+        # Чтение из файла и вставка в базу данных
+        with open(input_file, 'r', encoding='windows-1251') as infile:
+            for line in infile:
+                match = re.search(r'\d{2}:\d{2}:\d{2}.\d{3}', line)
+                match_time = re.search(r'\d{2}.\d{2}.\d{4}', line)
+                if match_time:
+                    date_str = match_time.group()
+                if match:
+                    postgresql_date = input_file.reverse_date(date_str)
+
+                    # Извлечение значений из строки
+                    parts = line.strip().split()
+                    timestamp = f"{postgresql_date} {parts[0]}"
+                    values = [float(part.replace(',', '').replace('E', 'e')) for part in parts[1:]]
+
+                    # Вставка данных в базу данных
+                    cursor.execute('''
+                        INSERT INTO suz_sutki (date_time, time_stamp,  power, job_hours, column1, column2, column3)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ''', (timestamp, *values))
+
+        # Сохранение изменений и закрытие соединения
+        connection.commit()
+        cursor.close()
+        connection.close()
+
+
     def open_csv_file(self):
         filename = QFileDialog.getOpenFileName(self)
+        if filename:
+            # Call the function to process and insert data into the database
+            db_params = {
+                'dbname': 'suz_sutki',
+                'user': 'postgres',
+                'password': '123321',
+                'host': '127.0.0.1',
+                'port': '5432',
+            }
+
+            self.process_and_insert_to_db(filename, db_params)
+
         return filename
+
 
 
     def db_conn(self):
